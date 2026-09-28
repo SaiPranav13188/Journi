@@ -1,0 +1,25 @@
+{
+  "name": "journi-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Journi API — itinerary generation, refinement and trip storage",
+  "type": "module",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch --env-file-if-exists=.env src/index.js",
+    "job:weather": "node --env-file-if-exists=.env src/jobs/runWeatherRefresh.js"
+  },
+  "dependencies": {
+    "@ai-sdk/google": "^4.0.82",
+    "@supabase/supabase-js": "^2.117.2",
+    "ai": "^7.0.118",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "node-cron": "^4.6.0",
+    "zod": "^4.6.5"
+  }
+}
