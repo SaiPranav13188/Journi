@@ -165,6 +165,41 @@ The v1 routes above follow a fixed sequence: fetch weather, fetch the exchange r
 
 **Rollout order:** Weather Watcher (set `AGENTIC_WEATHER_WATCHER=false` to fall back to the v1 rules; the watcher also falls back per trip if the agent fails), then Planner, then Budget, then Ticket and Price-Check. Keep v1 as the default until the eval results, latency and Gemini usage look right. An agent loop makes several model calls per request, compared with one for v1.
 
+## Group trips
+
+Several people can plan one trip together. Group trips always use the agents; there is no v1 path.
+
+**Setup:** run `supabase/migrations/007_groups.sql` once, after `006_agentic.sql`. It adds:
+- `trip_members`, `group_polls`, `group_poll_votes` and `group_expenses`
+- `trips.is_group` / `join_code`, and message authors
+- read-only access rules for members
+- live updates (Supabase Realtime)
+
+**How it works**
+- **Groups tab:** the owner shares a saved trip. That creates a join code like `JRN-4K7Q`, which friends enter to join. Everyone can chat and edit the plan; the organiser can remove people, and members can leave.
+- **Group agent** (`backend/src/agents/group.js`, `POST /v2/groups/:tripId/chat`, 6 steps). Its tools:
+  - `get_member_preferences`, `find_compromise`
+  - `invoke_planner_agent`, `invoke_budget_agent`, `get_weather`
+  - `create_poll`, `get_poll_results`, `close_poll`
+  - `record_expense`, `get_balances`
+  - `update_member_preferences`
+
+  It balances everyone's interests, budget, pace and dietary needs. For an either/or disagreement it starts a poll instead of deciding. When everyone has voted, or someone taps **Close now**, the agent applies the winning option automatically.
+- **Money:** the trip budget is a per-person estimate, and the group total is that × members. Shared expenses are split equally among the chosen people, like Splitwise. Balances show the fewest payments needed to settle up, e.g. "Rahul → Priya ₹1,300". Expenses can be added in the Group tab or just said in chat: "I paid ₹6,000 for the hotel".
+- **Live:** each member's app listens for changes to the trip, chat, members, polls, votes and expenses, then refreshes.
+- **Safety:** the backend checks membership on every group request. A member's edits are saved through the owner's atomic `save_trip_plan`. The group agent handles one AI request per trip at a time, so two people chatting at once can't overwrite each other's changes.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET / POST | `/v2/groups` | My group trips / share one of my trips |
+| POST | `/v2/groups/join` | Join with a code |
+| GET | `/v2/groups/:tripId` | Members, polls, expenses, balances |
+| POST | `/v2/groups/:tripId/chat` | Group agent |
+| PUT | `/v2/groups/:tripId/preferences` | My interests, budget, pace, dietary needs |
+| POST | `/v2/groups/:tripId/polls/:pollId/vote` · `/close` | Vote / end a poll early |
+| POST / DELETE | `/v2/groups/:tripId/expenses[/:id]` | Shared expenses |
+| DELETE | `/v2/groups/:tripId/members/:userId` | Leave, or remove someone (organiser only) |
+
 ## Additions beyond the original schema
 
 - `trips.country_code` and `trips.cover_image_url`: needed for the currency lookup and the trip-list thumbnail.

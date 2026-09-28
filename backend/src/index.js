@@ -13,6 +13,7 @@ import { savedPlacesRouter } from './routes/savedPlaces.js';
 import { dashboardRouter, weatherRouter } from './routes/dashboard.js';
 import { toolsRouter } from './routes/tools.js';
 import { v2Router, v2EvalRouter } from './routes/v2.js';
+import { groupsRouter } from './routes/groups.js';
 import { refreshAllUpcomingTrips } from './jobs/weatherRefresh.js';
 
 const app = express();
@@ -54,6 +55,7 @@ app.use('/tools', requireAuth, toolsRouter);
 
 // Agentic AI (v2) — runs alongside v1; the app picks per user via its feature flag.
 app.use('/v2/eval', v2EvalRouter); // internal only, protected by x-eval-secret
+app.use('/v2/groups', requireAuth, groupsRouter); // group trips (agentic only)
 app.use('/v2', requireAuth, v2Router);
 
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));

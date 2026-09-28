@@ -125,7 +125,8 @@ export function createBudgetTools(ctx) {
       inputSchema: z.object({}),
       execute: async () => {
         if (!ctx.tripId) return { total_inr: 0, count: 0, note: 'Unsaved trip — no bookings yet.' };
-        const { data, error } = await db.from('bookings').select('type, cost_inr, status').eq('trip_id', ctx.tripId).eq('user_id', ctx.userId);
+        // Access to the trip was checked when it was loaded; a group's bookings come from every member.
+        const { data, error } = await db.from('bookings').select('type, cost_inr, status').eq('trip_id', ctx.tripId);
         if (error) throw new Error('Could not load bookings');
         const active = data.filter((b) => b.status !== 'cancelled');
         return {

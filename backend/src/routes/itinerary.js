@@ -78,6 +78,7 @@ itineraryRouter.post(
       if (saved.trip.status === 'finalized') {
         throw new HttpError(409, 'This plan is finalized. Reopen it for editing to keep refining.');
       }
+      if (saved.trip.is_group) throw new HttpError(409, 'Group trips are planned with Journi’s group agent — update the app to chat here.');
       state = saved;
       history = saved.messages;
     } else {

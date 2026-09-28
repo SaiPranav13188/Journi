@@ -50,6 +50,25 @@ export function useTripEditor(routeId: string) {
     };
   }, [fetchPlan]);
 
+  // Group trips: pull the latest plan when another member changes it (no spinner,
+  // and never while this device is waiting on its own AI reply).
+  const sendingRef = useRef(false);
+  useEffect(() => {
+    sendingRef.current = sending;
+  }, [sending]);
+  const refresh = useCallback(async () => {
+    if (isDraftRoute || sendingRef.current) return;
+    try {
+      const next = await api.getTrip(routeId);
+      if (!sendingRef.current) {
+        planRef.current = next;
+        setPlan(next);
+      }
+    } catch {
+      // Keep showing what we have; the next change will try again.
+    }
+  }, [isDraftRoute, routeId]);
+
   const reload = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -86,14 +105,18 @@ export function useTripEditor(routeId: string) {
       setSending(true);
 
       try {
-        const res = await api.refineItinerary({
-          tripId: current.trip.id,
-          message: text,
-          state: { trip: current.trip, days: current.days, budget: current.budget },
-          history: baseMessages,
-          focusDay,
-          image,
-        });
+        // Group trips are always planned by the Group agent (no v1 path).
+        const res =
+          current.trip.is_group && current.trip.id
+            ? await api.groups.chat(current.trip.id, focusDay ? `(About Day ${focusDay}) ${text}` : text)
+            : await api.refineItinerary({
+                tripId: current.trip.id,
+                message: text,
+                state: { trip: current.trip, days: current.days, budget: current.budget },
+                history: baseMessages,
+                focusDay,
+                image,
+              });
 
         // The agentic backend reports which days it changed; v1 is diffed here.
         const before = new Map(current.days.map((d) => [d.day_number, dayFingerprint(d)]));
@@ -315,6 +338,7 @@ export function useTripEditor(routeId: string) {
     loading,
     error,
     reload,
+    refresh,
     sending,
     saving,
     isSaved,

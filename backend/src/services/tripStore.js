@@ -1,5 +1,6 @@
 // Supabase persistence for trips. Uses the service-role client, so every
-// query filters by user id explicitly.
+// query checks access explicitly: the trip's owner, or — for group trips — a
+// member (trip_members). Saves always run as the owner, whoever edits.
 
 import { supabaseAdmin as db } from '../lib/supabase.js';
 import { HttpError } from '../lib/http.js';
@@ -42,6 +43,9 @@ function tripRowToApi(row) {
     num_days: daysBetweenInclusive(row.start_date, row.end_date),
     created_at: row.created_at,
     updated_at: row.updated_at,
+    is_group: Boolean(row.is_group),
+    join_code: row.is_group ? row.join_code ?? null : null,
+    owner_id: row.user_id,
   };
 }
 
@@ -134,12 +138,21 @@ function budgetForRpc(budget) {
 
 // ----- Queries ---------------------------------------------------------------
 
+/** Ids of group trips the user has joined (not owns). Empty until migration 007 is run. */
+async function memberTripIds(userId) {
+  const { data, error } = await db.from('trip_members').select('trip_id').eq('user_id', userId);
+  if (error) return [];
+  return data.map((r) => r.trip_id);
+}
+
 export async function listTrips(userId) {
-  const { data, error } = await db
+  const joined = await memberTripIds(userId);
+  let query = db
     .from('trips')
     .select('*, trip_budget(total_inr, total_local_currency, local_currency_code), itinerary_days(theme, day_number, weather_warning)')
-    .eq('user_id', userId)
     .order('start_date', { ascending: true });
+  query = joined.length ? query.or(`user_id.eq.${userId},id.in.(${joined.join(',')})`) : query.eq('user_id', userId);
+  const { data, error } = await query;
   check(error, 'Could not load trips');
 
   return data.map((row) => {
@@ -159,15 +172,35 @@ export async function listTrips(userId) {
   });
 }
 
-export async function getTrip(userId, tripId) {
-  const { data: row, error } = await db.from('trips').select('*').eq('id', tripId).eq('user_id', userId).maybeSingle();
+/**
+ * The trip row if the user owns it or is a member of the group, else 404.
+ * @returns row (with row.user_id = the owner)
+ */
+export async function accessibleTripRow(userId, tripId) {
+  const { data: row, error } = await db.from('trips').select('*').eq('id', tripId).maybeSingle();
   check(error, 'Could not load trip');
   if (!row) throw new HttpError(404, 'Trip not found');
+  if (row.user_id === userId) return row;
+  if (row.is_group) {
+    const { data: member } = await db.from('trip_members').select('user_id').eq('trip_id', tripId).eq('user_id', userId).maybeSingle();
+    if (member) return row;
+  }
+  throw new HttpError(404, 'Trip not found');
+}
 
+export async function getTrip(userId, tripId) {
+  const row = await accessibleTripRow(userId, tripId);
+
+  const loadMessages = async () => {
+    const MSG = 'id, role, content, metadata, created_at';
+    // user_id / author_name (group chat) arrive with migration 007.
+    const res = await db.from('conversation_messages').select(`${MSG}, user_id, author_name`).eq('trip_id', tripId).order('created_at');
+    return res.error?.code === '42703' ? db.from('conversation_messages').select(MSG).eq('trip_id', tripId).order('created_at') : res;
+  };
   const [days, budget, messages] = await Promise.all([
     db.from('itinerary_days').select('*').eq('trip_id', tripId).order('day_number'),
     db.from('trip_budget').select('*').eq('trip_id', tripId).maybeSingle(),
-    db.from('conversation_messages').select('id, role, content, metadata, created_at').eq('trip_id', tripId).order('created_at'),
+    loadMessages(),
   ]);
   check(days.error || budget.error || messages.error, 'Could not load trip details');
 
@@ -182,31 +215,39 @@ export async function getTrip(userId, tripId) {
 
 /** Creates (tripId = null) or updates a trip with its full plan state. */
 export async function saveTripPlan(userId, tripId, { trip, days, budget }, newMessages = []) {
+  // Group members edit the owner's trip: the atomic save runs as the owner.
+  const ownerId = tripId ? (await accessibleTripRow(userId, tripId)).user_id : userId;
   const { data, error } = await db.rpc('save_trip_plan', {
-    p_user_id: userId,
+    p_user_id: ownerId,
     p_trip_id: tripId,
     p_trip: tripApiToRow(trip),
     p_days: days,
     p_budget: budgetForRpc(budget),
-    p_messages: newMessages.map(({ role, content, created_at, metadata }) => ({ role, content, created_at, metadata: metadata ?? null })),
+    p_messages: newMessages.map(({ role, content, created_at, metadata, user_id, author_name }) => ({
+      role,
+      content,
+      created_at,
+      metadata: metadata ?? null,
+      user_id: user_id ?? null,
+      author_name: author_name ?? null,
+    })),
   });
   if (error?.code === 'P0002') throw new HttpError(404, 'Trip not found');
   check(error, 'Could not save trip');
   return data; // trip id
 }
 
-export async function assertTripOwner(userId, tripId) {
-  const { data, error } = await db.from('trips').select('id').eq('id', tripId).eq('user_id', userId).maybeSingle();
-  check(error);
-  if (!data) throw new HttpError(404, 'Trip not found');
+/** Throws 404 unless the user owns the trip or is a member of its group. */
+export async function assertTripAccess(userId, tripId) {
+  await accessibleTripRow(userId, tripId);
 }
 
 export async function updateTripFields(userId, tripId, fields) {
+  await assertTripAccess(userId, tripId);
   const { data, error } = await db
     .from('trips')
     .update(fields)
     .eq('id', tripId)
-    .eq('user_id', userId)
     .select('id')
     .maybeSingle();
   check(error, 'Could not update trip');
@@ -214,7 +255,7 @@ export async function updateTripFields(userId, tripId, fields) {
 }
 
 export async function updateAccommodationNote(userId, tripId, dayNumber, note) {
-  await assertTripOwner(userId, tripId);
+  await assertTripAccess(userId, tripId);
   const { data, error } = await db
     .from('itinerary_days')
     .update({ accommodation_note: note?.trim() || null })

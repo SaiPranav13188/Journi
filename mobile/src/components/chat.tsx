@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { forwardRef, useEffect, useState } from 'react';
+import { forwardRef, useEffect, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Linking, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import Animated, {
   FadeIn,
@@ -225,17 +225,43 @@ function MapButton({ url, name }: { url: string; name: string }) {
 
 // ------------------------------------------------------------ bubbles
 
-export function ChatBubble({ message, onRetry, actions }: { message: ChatMessage; onRetry?: () => void; actions: SuggestionActions }) {
+/** Group chat: whose messages are "mine", and how to render a poll the agent created. */
+export interface GroupChatOptions {
+  myUserId: string;
+  renderPoll: (pollId: string) => ReactNode;
+}
+
+function MemberAvatar({ name }: { name: string }) {
+  return (
+    <View style={styles.memberAvatar}>
+      <Text variant="label" color={Colors.white} style={{ fontSize: 13 }}>
+        {name.charAt(0).toUpperCase()}
+      </Text>
+    </View>
+  );
+}
+
+export function ChatBubble({ message, onRetry, actions, group }: { message: ChatMessage; onRetry?: () => void; actions: SuggestionActions; group?: GroupChatOptions }) {
   const isUser = message.role === 'user';
   const suggestions = message.metadata?.type === 'suggestions' ? message.metadata : null;
+  const pollId = message.metadata?.type === 'poll' ? message.metadata.poll_id : null;
+  // In a group, other members' messages sit on the left with their name.
+  const fromOther = Boolean(group && isUser && message.user_id && message.user_id !== group.myUserId);
+  const mine = isUser && !fromOther;
 
   return (
     <View style={{ gap: 10 }}>
-      <Animated.View entering={FadeInUp.duration(300)} style={isUser ? styles.rowRight : styles.rowLeft}>
+      <Animated.View entering={FadeInUp.duration(300)} style={mine ? styles.rowRight : styles.rowLeft}>
         {!isUser && <JourniAvatar />}
-        <View style={{ maxWidth: '80%', alignItems: isUser ? 'flex-end' : 'flex-start', gap: 4 }}>
-          <View style={[styles.bubble, isUser ? styles.userBubble : styles.assistantBubble, message.failed && { opacity: 0.6 }]}>
-            <Text variant="body" color={isUser ? Colors.white : Colors.ink}>
+        {fromOther && <MemberAvatar name={message.author_name ?? '?'} />}
+        <View style={{ maxWidth: '80%', alignItems: mine ? 'flex-end' : 'flex-start', gap: 4 }}>
+          {fromOther && (
+            <Text variant="caption" color={Colors.muted} style={{ fontSize: 11 }}>
+              {message.author_name}
+            </Text>
+          )}
+          <View style={[styles.bubble, mine ? styles.userBubble : fromOther ? styles.memberBubble : styles.assistantBubble, message.failed && { opacity: 0.6 }]}>
+            <Text variant="body" color={mine ? Colors.white : Colors.ink}>
               {message.content}
             </Text>
           </View>
@@ -267,6 +293,8 @@ export function ChatBubble({ message, onRetry, actions }: { message: ChatMessage
           ))}
         </View>
       )}
+
+      {pollId && group && <View style={styles.suggestionList}>{group.renderPoll(pollId)}</View>}
     </View>
   );
 }
@@ -276,22 +304,26 @@ export function ChatThread({
   typing,
   onRetry,
   actions,
+  group,
 }: {
   messages: ChatMessage[];
   typing: boolean;
   onRetry: (m: ChatMessage) => void;
   actions: SuggestionActions;
+  group?: GroupChatOptions;
 }) {
   return (
     <View style={{ gap: 14 }}>
       <Animated.View entering={FadeIn} style={styles.intro}>
-        <Ionicons name="chatbubbles-outline" size={18} color={Colors.primary} />
+        <Ionicons name={group ? 'people-outline' : 'chatbubbles-outline'} size={18} color={Colors.primary} />
         <Text variant="caption" color={Colors.inkSoft} style={{ flex: 1 }}>
-          Ask for any change, or try “show me famous coffee shops near my Day 1 plan” — tap Add to put a place straight into your day.
+          {group
+            ? 'Everyone in the group can chat here. Journi balances what each person wants, starts a poll when you disagree, and keeps track of who paid for what.'
+            : 'Ask for any change, or try “show me famous coffee shops near my Day 1 plan” — tap Add to put a place straight into your day.'}
         </Text>
       </Animated.View>
       {messages.map((m, i) => (
-        <ChatBubble key={m.id ?? `${m.created_at}-${i}`} message={m} onRetry={() => onRetry(m)} actions={actions} />
+        <ChatBubble key={m.id ?? `${m.created_at}-${i}`} message={m} onRetry={() => onRetry(m)} actions={actions} group={group} />
       ))}
       {typing && <TypingIndicator />}
     </View>
@@ -469,6 +501,8 @@ const styles = StyleSheet.create({
   rowRight: { flexDirection: 'row', justifyContent: 'flex-end' },
   bubble: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20 },
   userBubble: { backgroundColor: Colors.primary, borderBottomRightRadius: 6 },
+  memberBubble: { backgroundColor: Colors.primarySoft, borderBottomLeftRadius: 6 },
+  memberAvatar: { width: 30, height: 30, borderRadius: 15, backgroundColor: Colors.accent, alignItems: 'center', justifyContent: 'center' },
   assistantBubble: { backgroundColor: Colors.surface, borderBottomLeftRadius: 6, ...Shadow.card },
   typing: { flexDirection: 'row', gap: 5, paddingVertical: 14 },
   dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: Colors.muted },

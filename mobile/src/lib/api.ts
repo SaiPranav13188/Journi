@@ -11,6 +11,11 @@ import type {
   ReworkTarget,
   SavedPlace,
   TicketExtractResult,
+  ExpenseCategory,
+  GroupDetails,
+  GroupExpense,
+  GroupListItem,
+  MemberPreferences,
   ChatMessage,
   Budget,
   Destination,
@@ -302,6 +307,31 @@ export const api = {
   updateAccommodation: (id: string, dayNumber: number, note: string | null) =>
     request<{ ok: true }>(`/trips/${id}/days/${dayNumber}`, { method: 'PATCH', body: { accommodation_note: note } }),
   deleteTrip: (id: string) => request<void>(`/trips/${id}`, { method: 'DELETE' }),
+
+  // ---- group trips (always agentic) ------------------------------------------
+  groups: {
+    list: () => request<{ groups: GroupListItem[] }>('/v2/groups', { timeoutMs: 70_000 }).then((r) => r.groups),
+    /** Shares one of my saved trips with a group (creates its join code). */
+    create: (tripId: string) => request<GroupDetails>('/v2/groups', { method: 'POST', body: { trip_id: tripId } }),
+    join: (code: string) =>
+      request<{ trip_id: string; destination_name: string; already_member: boolean }>('/v2/groups/join', { method: 'POST', body: { code } }),
+    get: (tripId: string) => request<GroupDetails>(`/v2/groups/${tripId}`, { timeoutMs: 70_000 }),
+    /** A group-chat turn handled by the Group agent. */
+    chat: (tripId: string, message: string) =>
+      request<PlanResponse>(`/v2/groups/${tripId}/chat`, { method: 'POST', body: { message }, timeoutMs: AGENT_TIMEOUT }),
+    savePreferences: (tripId: string, prefs: MemberPreferences) =>
+      request<{ preferences: MemberPreferences }>(`/v2/groups/${tripId}/preferences`, { method: 'PUT', body: prefs }).then((r) => r.preferences),
+    vote: (tripId: string, pollId: string, optionId: string) =>
+      request<{ ok: true; closed: boolean }>(`/v2/groups/${tripId}/polls/${pollId}/vote`, { method: 'POST', body: { option_id: optionId } }),
+    closePoll: (tripId: string, pollId: string) => request<{ ok: true }>(`/v2/groups/${tripId}/polls/${pollId}/close`, { method: 'POST' }),
+    addExpense: (
+      tripId: string,
+      e: { description: string; amount_inr: number; paid_by: string; split_among: string[] | null; category: ExpenseCategory },
+    ) => request<{ expense: GroupExpense }>(`/v2/groups/${tripId}/expenses`, { method: 'POST', body: e }).then((r) => r.expense),
+    deleteExpense: (tripId: string, expenseId: string) => request<void>(`/v2/groups/${tripId}/expenses/${expenseId}`, { method: 'DELETE' }),
+    /** Leave (your own id) or remove someone (organiser only). */
+    removeMember: (tripId: string, userId: string) => request<unknown>(`/v2/groups/${tripId}/members/${userId}`, { method: 'DELETE' }),
+  },
 
   listAlerts: (unreadOnly = false) =>
     request<{ alerts: TripAlert[] }>(`/alerts${unreadOnly ? '?unread=1' : ''}`).then((r) => r.alerts),

@@ -30,6 +30,7 @@ import { FlightCostSheet } from '@/components/flight-cost-sheet';
 import { TripMap } from '@/components/trip-map';
 import { ChatThread, Composer, DayFocusBar, SuggestionChips, type SuggestionActions } from '@/components/chat';
 import { DayCard } from '@/components/day-card';
+import { GroupPanel, PollCard } from '@/components/group-panel';
 import { PlacePhoto } from '@/components/place-photo';
 import { StatusPill } from '@/components/trip-card';
 import { Button } from '@/components/ui/button';
@@ -40,6 +41,7 @@ import { Text } from '@/components/ui/text';
 import { weatherIcon } from '@/components/weather';
 import { Colors, Radius, Shadow } from '@/constants/theme';
 import { useAuth } from '@/context/auth-context';
+import { useGroup } from '@/hooks/use-group';
 import { useTripEditor, type BudgetChange } from '@/hooks/use-trip-editor';
 import { api } from '@/lib/api';
 import { clearDraft } from '@/lib/draft';
@@ -47,7 +49,7 @@ import { flagEmoji, formatDate, formatDateRange, formatMoney } from '@/lib/forma
 import { agenticAiEnabled } from '@/lib/profile';
 import type { Booking, ChatMessage, PlaceSuggestion, ReworkPreview, ReworkTarget, TimeOfDay } from '@/lib/types';
 
-type Tab = 'itinerary' | 'map' | 'chat' | 'budget';
+type Tab = 'itinerary' | 'map' | 'chat' | 'budget' | 'group';
 const HERO_HEIGHT = 330;
 
 export default function TripScreen() {
@@ -64,7 +66,7 @@ export default function TripScreen() {
   const { plan, sending, saving, isSaved, isFinalized } = editor;
 
   const [tab, setTab] = useState<Tab>(
-    initialTab && ['itinerary', 'map', 'chat', 'budget'].includes(initialTab) ? initialTab : 'itinerary',
+    initialTab && ['itinerary', 'map', 'chat', 'budget', 'group'].includes(initialTab) ? initialTab : 'itinerary',
   );
   const [limitOpen, setLimitOpen] = useState(false);
   const [flightOpen, setFlightOpen] = useState(false);
@@ -84,6 +86,20 @@ export default function TripScreen() {
   const { user } = useAuth();
   const agentsOn = agenticAiEnabled(user);
   const [chatPhoto, setChatPhoto] = useState<{ uri: string; base64: string; mimeType: string } | null>(null);
+  // Group trips: members, polls and expenses, refreshed live when anyone changes something.
+  const isGroup = Boolean(plan?.trip.is_group && plan?.trip.id);
+  const groupState = useGroup(isGroup ? (plan?.trip.id ?? null) : null, isGroup, editor.refresh);
+  const groupChat =
+    isGroup && groupState.group
+      ? {
+          myUserId: groupState.group.my_user_id,
+          renderPoll: (pollId: string) => {
+            const g = groupState.group!;
+            const poll = g.polls.find((p) => p.id === pollId);
+            return poll ? <PollCard poll={poll} tripId={g.trip_id} myUserId={g.my_user_id} members={g.members} onChanged={groupState.reload} /> : null;
+          },
+        }
+      : undefined;
   const [toast, setToast] = useState<{ text: string; kind: 'reply' | 'info' } | null>(null);
   // Day the user is adding places to (after tapping "Add places to Day N").
   const [focusDay, setFocusDay] = useState<number | null>(null);
@@ -484,6 +500,7 @@ export default function TripScreen() {
                   { key: 'map', label: 'Map', icon: 'map-outline' },
                   { key: 'chat', label: 'Chat', icon: 'chatbubbles-outline' },
                   { key: 'budget', label: 'Budget', icon: 'wallet-outline' },
+                  ...(isGroup ? [{ key: 'group', label: 'Group', icon: 'people-outline' } as const] : []),
                 ] as const
               ).map((t) => {
                 const active = tab === t.key;
@@ -496,13 +513,17 @@ export default function TripScreen() {
                       if (t.key === 'chat') setToast(null);
                       else setFocusDay(null);
                     }}
-                    style={[styles.tab, active && styles.tabActive]}
+                    // Five tabs on a group trip: inactive ones show just their icon.
+                    style={[styles.tab, active && styles.tabActive, isGroup && active && { flex: 2.2 }]}
+                    accessibilityLabel={t.label}
                   >
                     <Ionicons name={t.icon} size={16} color={active ? Colors.white : Colors.inkSoft} />
-                    <Text variant="label" color={active ? Colors.white : Colors.inkSoft}>
-                      {t.label}
-                    </Text>
-                    {t.key === 'chat' && messages.length > 0 && !active && (
+                    {(!isGroup || active) && (
+                      <Text variant="label" color={active ? Colors.white : Colors.inkSoft}>
+                        {t.label}
+                      </Text>
+                    )}
+                    {t.key === 'chat' && messages.length > 0 && !active && !isGroup && (
                       <View style={styles.tabCount}>
                         <Text variant="overline" color={Colors.primary} style={{ fontSize: 10, letterSpacing: 0 }}>
                           {messages.length}
@@ -642,7 +663,20 @@ export default function TripScreen() {
 
             {tab === 'chat' && (
               <Animated.View key="chat" entering={FadeIn.duration(250)}>
-                <ChatThread messages={messages} typing={sending} onRetry={(m) => send(m.content, m)} actions={suggestionActions} />
+                <ChatThread messages={messages} typing={sending} onRetry={(m) => send(m.content, m)} actions={suggestionActions} group={groupChat} />
+              </Animated.View>
+            )}
+
+            {tab === 'group' && isGroup && plan?.trip.id && (
+              <Animated.View key="group" entering={FadeIn.duration(250)}>
+                <GroupPanel
+                  tripId={plan.trip.id}
+                  destinationName={d.name}
+                  group={groupState.group}
+                  error={groupState.error}
+                  onReload={groupState.reload}
+                  onLeft={() => router.back()}
+                />
               </Animated.View>
             )}
 
@@ -793,7 +827,7 @@ export default function TripScreen() {
                 onSend={(t) => send(t)}
                 sending={sending}
                 onFocus={() => setTab('chat')}
-                onAttach={agentsOn ? pickChatPhoto : undefined}
+                onAttach={agentsOn && !isGroup ? pickChatPhoto : undefined}
                 attachment={chatPhoto}
                 onClearAttachment={() => setChatPhoto(null)}
               />

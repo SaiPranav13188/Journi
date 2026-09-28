@@ -156,6 +156,16 @@ export interface Trip {
   num_days: number;
   created_at?: string;
   updated_at?: string;
+  /** Group trip: shared with friends via a join code. */
+  is_group?: boolean;
+  join_code?: string | null;
+  owner_id?: string;
+}
+
+/** A group-chat message that carries a poll the Group agent created. */
+export interface PollMetadata {
+  type: 'poll';
+  poll_id: string;
 }
 
 export interface ChatMessage {
@@ -163,7 +173,10 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   created_at: string;
-  metadata?: SuggestionsMetadata | null;
+  metadata?: SuggestionsMetadata | PollMetadata | null;
+  /** Group chat: who wrote it. */
+  user_id?: string | null;
+  author_name?: string | null;
   pending?: boolean;
   failed?: boolean;
 }
@@ -303,6 +316,76 @@ export interface ExtractedBooking {
   cost_inr: number;
   status: BookingStatus;
   notes: string | null;
+}
+
+// ---------------------------------------------------------------- group trips
+
+export type Pace = 'relaxed' | 'balanced' | 'packed';
+
+export interface MemberPreferences {
+  interests?: string[];
+  budget_per_person_inr?: number | null;
+  pace?: Pace | null;
+  dietary?: string | null;
+  notes?: string | null;
+}
+
+export interface GroupMember {
+  user_id: string;
+  role: 'owner' | 'member';
+  display_name: string;
+  preferences: MemberPreferences;
+  joined_at: string;
+}
+
+export interface GroupPoll {
+  id: string;
+  trip_id: string;
+  question: string;
+  options: { id: string; label: string }[];
+  day_number: number | null;
+  status: 'open' | 'closed';
+  result: { winner_option_id: string | null; winner_label: string | null; tie: boolean; leaders: string[] } | null;
+  created_at: string;
+  votes: { user_id: string; option_id: string }[];
+  live: { counts: Record<string, number>; total_votes: number; tie: boolean; winner_label: string | null };
+}
+
+export type ExpenseCategory = 'stay' | 'food' | 'transport' | 'activity' | 'shopping' | 'other';
+
+export interface GroupExpense {
+  id: string;
+  description: string;
+  amount_inr: number;
+  paid_by: string;
+  split_among: string[];
+  category: ExpenseCategory;
+  created_at: string;
+}
+
+export interface GroupBalances {
+  total_spent_inr: number;
+  people: { user_id: string; name: string; paid_inr: number; share_inr: number; net_inr: number }[];
+  settlements: { from_user_id: string; from: string; to_user_id: string; to: string; amount_inr: number }[];
+}
+
+export interface GroupDetails {
+  trip_id: string;
+  join_code: string | null;
+  owner_id: string;
+  my_user_id: string;
+  members: GroupMember[];
+  polls: GroupPoll[];
+  expenses: GroupExpense[];
+  balances: GroupBalances;
+  /** The trip budget is a per-traveller estimate. */
+  estimate: { per_person_inr: number | null; group_total_inr: number | null; members: number };
+}
+
+export interface GroupListItem extends TripListItem {
+  member_count: number;
+  member_names: string[];
+  is_owner: boolean;
 }
 
 /** A ticket field the Ticket agent wasn't sure about — the traveller must confirm it. */

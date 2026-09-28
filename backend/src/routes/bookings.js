@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { asyncHandler, HttpError } from '../lib/http.js';
 import { supabaseAdmin as db } from '../lib/supabase.js';
 import { randomUUID } from 'node:crypto';
-import { assertTripOwner, listTrips } from '../services/tripStore.js';
+import { assertTripAccess, listTrips } from '../services/tripStore.js';
 import { extractBookingsFromTicket, TICKET_MIME_TYPES } from '../services/ticketExtract.js';
 
 export const bookingsRouter = Router();
@@ -65,7 +65,7 @@ bookingsRouter.post(
   asyncHandler(async (req, res) => {
     const parsed = BookingSchema.safeParse(req.body);
     if (!parsed.success) throw new HttpError(400, 'Please check the booking details', parsed.error.issues);
-    await assertTripOwner(req.user.id, parsed.data.trip_id);
+    await assertTripAccess(req.user.id, parsed.data.trip_id);
     assertOwnTicket(req.user.id, parsed.data.ticket_path);
     const { data, error } = await db
       .from('bookings')
@@ -82,7 +82,7 @@ bookingsRouter.patch(
   asyncHandler(async (req, res) => {
     const parsed = BookingSchema.partial().safeParse(req.body);
     if (!parsed.success) throw new HttpError(400, 'Please check the booking details', parsed.error.issues);
-    if (parsed.data.trip_id) await assertTripOwner(req.user.id, parsed.data.trip_id);
+    if (parsed.data.trip_id) await assertTripAccess(req.user.id, parsed.data.trip_id);
     assertOwnTicket(req.user.id, parsed.data.ticket_path);
     const { data, error } = await db
       .from('bookings')
