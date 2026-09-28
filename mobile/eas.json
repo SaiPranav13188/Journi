@@ -1,0 +1,29 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "local"
+  },
+  "build": {
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://journi-api-h9nh.onrender.com",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://xwpbowbkvozjmnespmqm.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh3cGJvd2Jrdm96am1uZXNwbXFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzMjgwMDgsImV4cCI6MjEwNTkwNDAwOH0.QEaC4e1C9Bd2w4hbdrHIQPkHDf-GoszUaYuwIT9ZNTs"
+      }
+    },
+    "production": {
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://journi-api-h9nh.onrender.com",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://xwpbowbkvozjmnespmqm.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh3cGJvd2Jrdm96am1uZXNwbXFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzMjgwMDgsImV4cCI6MjEwNTkwNDAwOH0.QEaC4e1C9Bd2w4hbdrHIQPkHDf-GoszUaYuwIT9ZNTs"
+      }
+    }
+  }
+}
